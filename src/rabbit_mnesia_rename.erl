@@ -58,14 +58,35 @@ rename(Node, NodeMapList) ->
         ok = rabbit_mnesia:copy_db(mnesia_copy_dir()),
 
         %% And make the actual changes
+        io:format("@@@@@@@@ ~p:rename/2 before become/1 FromNode: ~p~n", [?MODULE, FromNode]),
         become(FromNode),
-        take_backup(before_backup_name()),
-        convert_backup(NodeMap, before_backup_name(), after_backup_name()),
-        ok = rabbit_file:write_term_file(rename_config_name(),
-                                         [{FromNode, ToNode}]),
+        io:format("@@@@@@@@ ~p:rename/2 after become/1~n", [?MODULE]),
+
+        BeforeBackupName = before_backup_name(),
+        AfterBackupName = after_backup_name(),
+
+        io:format("@@@@@@@@ ~p:rename/2 before take_backup/1 BeforeBackupName: ~p~n", [?MODULE, BeforeBackupName]),
+        take_backup(BeforeBackupName),
+        io:format("@@@@@@@@ ~p:rename/2 after take_backup/1~n", [?MODULE]),
+
+        io:format("@@@@@@@@ ~p:rename/2 before convert_backup/3 AfterBackupName: ~p~n", [?MODULE, AfterBackupName]),
+        convert_backup(NodeMap, BeforeBackupName, AfterBackupName),
+        io:format("@@@@@@@@ ~p:rename/2 after convert_backup/3~n", [?MODULE]),
+
+        RenameConfigName = rename_config_name(),
+        ok = rabbit_file:write_term_file(RenameConfigName, [{FromNode, ToNode}]),
+
+        io:format("@@@@@@@@ ~p:rename/2 before convert_config_files/1~n", [?MODULE]),
         convert_config_files(NodeMap),
+        io:format("@@@@@@@@ ~p:rename/2 after convert_config_files/1~n", [?MODULE]),
+
+        io:format("@@@@@@@@ ~p:rename/2 before become/1 FromNode: ~p~n", [?MODULE, ToNode]),
         become(ToNode),
-        restore_backup(after_backup_name()),
+        io:format("@@@@@@@@ ~p:rename/2 after become/1~n", [?MODULE]),
+
+        io:format("@@@@@@@@ ~p:rename/2 before restore_backup/1 AfterBackupName: ~p~n", [?MODULE, AfterBackupName]),
+        restore_backup(AfterBackupName),
+        io:format("@@@@@@@@ ~p:rename/2 after restore_backup/1~n", [?MODULE]),
         ok
     after
         stop_mnesia()

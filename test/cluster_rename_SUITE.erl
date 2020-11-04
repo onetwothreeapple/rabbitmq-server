@@ -10,6 +10,10 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("amqp_client/include/amqp_client.hrl").
 
+-import(rabbit_ct_broker_helpers, [
+    cluster_members_online/2
+]).
+
 -compile(export_all).
 
 all() ->
@@ -232,8 +236,27 @@ rename_twice_fail(Config) ->
 %% ----------------------------------------------------------------------------
 
 stop_rename_start(Config, Nodename, Map) ->
+    NodeCount = length(rabbit_ct_broker_helpers:get_node_configs(Config)),
+    NodeIndexes = lists:seq(0, NodeCount - 1),
+    ExpectedRunningNodeCount = NodeCount - 1,
+    NodeRenameConfigIdx = rabbit_ct_broker_helpers:nodename_to_index(Config, Nodename),
+    NodeIdxsToCheck = [N || N <- NodeIndexes, N =/= NodeRenameConfigIdx],
     ok = rabbit_ct_broker_helpers:stop_node(Config, Nodename),
+    P0 = fun(NodeIdx) ->
+             ExpectedRunningNodeCount =:= length(cluster_members_online(Config, NodeIdx))
+         end,
+    C0 = fun() ->
+             lists:all(P0, NodeIdxsToCheck)
+         end,
+    ok = rabbit_ct_helpers:await_condition(C0, 30000),
     Config1 = rename_node(Config, Nodename, Map),
+    P1 = fun(NodeIdx) ->
+             ExpectedRunningNodeCount =:= length(cluster_members_online(Config1, NodeIdx))
+         end,
+    C1 = fun() ->
+             lists:all(P1, NodeIdxsToCheck)
+         end,
+    ok = rabbit_ct_helpers:await_condition(C1, 30000),
     ok = rabbit_ct_broker_helpers:start_node(Config1, Nodename),
     Config1.
 
@@ -289,7 +312,6 @@ consume(Config, Node, Q) ->
     {#'basic.get_ok'{}, #amqp_msg{payload = Q}} =
         amqp_channel:call(Ch, #'basic.get'{queue = Q}),
     rabbit_ct_client_helpers:close_channels_and_connection(Config, Node).
-
 
 publish_all(Config, Nodes) ->
     [publish(Config, Node, Key) || {Node, Key} <- Nodes].
