@@ -132,7 +132,9 @@ prepare(Node, NodeMapList) ->
     {FromNode, ToNode, NodeMap}.
 
 take_backup(Backup) ->
+    io:format("@@@@@@@@ ~p:take_backup/1 before start_mnesia/0~n", [?MODULE]),
     start_mnesia(),
+    io:format("@@@@@@@@ ~p:take_backup/1 after start_mnesia/0~n", [?MODULE]),
     %% We backup only local tables: in particular, this excludes the
     %% connection tracking tables which have no local replica.
     LocalTables = mnesia:system_info(local_tables),
@@ -202,9 +204,18 @@ mnesia_copy_dir()    -> dir() ++ "/mnesia-copy".
 
 delete_rename_files() -> ok = rabbit_file:recursive_delete([dir()]).
 
-start_mnesia() -> rabbit_misc:ensure_ok(mnesia:start(), cannot_start_mnesia),
-                  rabbit_table:force_load(),
-                  rabbit_table:wait_for_replicated(_Retry = false).
+start_mnesia() ->
+    io:format("@@@@@@@@ ~p:start_mnesia/0 before mnesia:start/0~n", [?MODULE]),
+    rabbit_misc:ensure_ok(mnesia:start(), cannot_start_mnesia),
+    io:format("@@@@@@@@ ~p:start_mnesia/0 after mnesia:start/0~n", [?MODULE]),
+    io:format("@@@@@@@@ ~p:start_mnesia/0 before rabbit_table:force_load/0~n", [?MODULE]),
+    rabbit_table:force_load(),
+    io:format("@@@@@@@@ ~p:start_mnesia/0 after rabbit_table:force_load/0~n", [?MODULE]),
+    io:format("@@@@@@@@ ~p:start_mnesia/0 before rabbit_table:wait_for_replicated/1~n", [?MODULE]),
+    R = rabbit_table:wait_for_replicated(_Retry = false),
+    io:format("@@@@@@@@ ~p:start_mnesia/0 after rabbit_table:wait_for_replicated/1~n", [?MODULE]),
+    R.
+
 stop_mnesia()  -> stopped = mnesia:stop().
 
 convert_backup(NodeMap, FromBackup, ToBackup) ->
