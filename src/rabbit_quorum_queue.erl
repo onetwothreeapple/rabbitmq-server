@@ -658,20 +658,33 @@ consume(Q, Spec, QState0) when ?amqqueue_is_quorum(Q) ->
     ConsumerTag = quorum_ctag(ConsumerTag0),
     %% A prefetch count of 0 means no limitation,
     %% let's make it into something large for ra
-    Prefetch = case ConsumerPrefetchCount of
-                   0 -> 2000;
-                   Other -> Other
-               end,
+    Prefetch0 = case ConsumerPrefetchCount of
+                    0 -> 2000;
+                    Other -> Other
+                end,
     %% consumer info is used to describe the consumer properties
     AckRequired = not NoAck,
     ConsumerMeta = #{ack => AckRequired,
                      prefetch => ConsumerPrefetchCount,
                      args => Args,
                      username => ActingUser},
-    {ok, QState} = rabbit_fifo_client:checkout(ConsumerTag,
-                                               Prefetch,
-                                               ConsumerMeta,
-                                               QState0),
+
+    {CreditMode, Credit, Drain} = parse_credit_args(Prefetch0, Args),
+    %% if the mode is credited we should send a separate credit command
+    %% after checkout and give 0 credits initally
+    Prefetch = case CreditMode of
+                   credited -> 0;
+                   simple_prefetch -> Prefetch0
+               end,
+    {ok, QState1} = rabbit_fifo_client:checkout(ConsumerTag, Prefetch,
+                                                CreditMode, ConsumerMeta,
+                                                QState0),
+    QState = case CreditMode of
+                   credited when Credit > 0 ->
+                     rabbit_fifo_client:credit(ConsumerTag, Credit, Drain,
+                                               QState1);
+                   _ -> QState1
+               end,
     case ra:local_query(QPid,
                         fun rabbit_fifo:query_single_active_consumer/1) of
         {ok, {_, SacResult}, _} ->
@@ -1485,3 +1498,17 @@ overflow(<<"reject-publish-dlx">> = V, _Def, QName) ->
     rabbit_misc:protocol_error(precondition_failed,
                                "invalid overflow value '~s' for ~s",
                                [V, rabbit_misc:rs(QName)]).
+
+parse_credit_args(Default, Args) ->
+    case rabbit_misc:table_lookup(Args, <<"x-credit">>) of
+        {table, T} ->
+            case {rabbit_misc:table_lookup(T, <<"credit">>),
+                  rabbit_misc:table_lookup(T, <<"drain">>)} of
+                {{long, C}, {bool, D}} ->
+                    {credited, C, D};
+                _ ->
+                    {simple_prefetch, Default, false}
+            end;
+        undefined ->
+            {simple_prefetch, Default, false}
+    end.
